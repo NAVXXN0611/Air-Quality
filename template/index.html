@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SmartCity AirWatch — Urban Air Quality Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+
+<style>
+/* ── ROOT & THEME ───────────────────────────────────────── */
+:root {
+  --bg-deep:    #020c18;
+  --bg-panel:   #061525;
+  --bg-card:    #0a1f35;
+  --border:     #0d3a5c;
+  --accent-teal:#00e5ff;
+  --accent-gold:#ffd600;
+  --accent-red: #ff1744;
+  --accent-grn: #00e676;
+  --text-primary:#e8f4fd;
+  --text-dim:   #5a8aa8;
+  --text-muted: #2a4a62;
+  --glow-teal:  0 0 20px rgba(0,229,255,0.3);
+  --glow-gold:  0 0 20px rgba(255,214,0,0.3);
+  --glow-red:   0 0 20px rgba(255,23,68,0.4);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Rajdhani', sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0,80,120,0.25) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(2,12,24,0) 0%, #020c18 100%);
+}
+
+/* ── GRID SCAN LINE OVERLAY ─────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(0,229,255,0.03) 39px, rgba(0,229,255,0.03) 40px);
+  pointer-events: none; z-index: 0;
+}
+
+/* ── HEADER ─────────────────────────────────────────────── */
+header {
+  position: relative; z-index: 10;
+  padding: 18px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: rgba(6,21,37,0.9);
+  backdrop-filter: blur(12px);
+}
+
+.brand {
+  display: flex; align-items: center; gap: 14px;
+}
+
+.brand-icon {
+  width: 48px; height: 48px;
+  background: linear-gradient(135deg, #003f5c, #0090b8);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--accent-teal);
+  box-shadow: var(--glow-teal);
+  font-size: 22px;
+}
+
+.brand-text h1 {
+  font-family: 'Orbitron', monospace;
+  font-size: 20px; font-weight: 900;
+  color: var(--accent-teal);
+  letter-spacing: 3px;
+  text-shadow: 0 0 15px rgba(0,229,255,0.5);
+}
+
+.brand-text p {
+  font-size: 11px; color: var(--text-dim);
+  letter-spacing: 2px; text-transform: uppercase;
+  font-weight: 300;
+}
+
+.header-right {
+  display: flex; align-items: center; gap: 24px;
+}
+
+.live-indicator {
+  display: flex; align-items: center; gap: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px; color: var(--accent-grn);
+  letter-spacing: 1px;
+}
+
+.pulse-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent-grn);
+  box-shadow: 0 0 8px var(--accent-grn);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.7); }
+}
+
+.timestamp-display {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px; color: var(--text-dim);
+}
+
+.refresh-btn {
+  background: rgba(0,229,255,0.1);
+  border: 1px solid var(--accent-teal);
+  color: var(--accent-teal);
+  padding: 8px 18px; border-radius: 6px;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer; letter-spacing: 1px;
+  transition: all 0.2s ease;
+}
+.refresh-btn:hover {
+  background: rgba(0,229,255,0.2);
+  box-shadow: var(--glow-teal);
+}
+
+/* ── SPIKE ALERT BANNER ─────────────────────────────────── */
+#spike-alert {
+  display: none;
+  position: relative; z-index: 10;
+  background: linear-gradient(90deg, rgba(255,23,68,0.15), rgba(255,23,68,0.05), rgba(255,23,68,0.15));
+  border-top: 1px solid rgba(255,23,68,0.5);
+  border-bottom: 1px solid rgba(255,23,68,0.5);
+  padding: 12px 32px;
+  display: flex; align-items: center; gap: 14px;
+  animation: alertFlash 2s ease-in-out infinite;
+}
+
+@keyframes alertFlash {
+  0%,100% { background: linear-gradient(90deg, rgba(255,23,68,0.15), rgba(255,23,68,0.05), rgba(255,23,68,0.15)); }
+  50%     { background: linear-gradient(90deg, rgba(255,23,68,0.25), rgba(255,23,68,0.1), rgba(255,23,68,0.25)); }
+}
+
+.alert-icon { font-size: 22px; animation: alertShake 0.5s ease-in-out infinite alternate; }
+@keyframes alertShake {
+  from { transform: rotate(-5deg); }
+  to   { transform: rotate(5deg); }
+}
+
+.alert-text { font-family: 'Orbitron', monospace; font-size: 13px; color: var(--accent-red); letter-spacing: 1px; font-weight: 700; }
+.alert-text span { color: var(--text-primary); font-weight: 400; font-family: 'Share Tech Mono', monospace; font-size: 11px; margin-left: 10px; }
+
+/* ── MAIN LAYOUT ────────────────────────────────────────── */
+main {
+  position: relative; z-index: 1;
+  padding: 24px 28px;
+  max-width: 1600px; margin: 0 auto;
+  display: grid;
+  gap: 20px;
+}
+
+/* ── METRIC CARDS ────────────────────────────────────────── */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  position: relative; overflow: hidden;
+  transition: all 0.3s ease;
+  cursor: default;
+}
+
+.metric-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--card-accent, var(--accent-teal));
+  box-shadow: 0 0 12px var(--card-accent, var(--accent-teal));
+}
+
+.metric-card:hover {
+  border-color: var(--card-accent, var(--accent-teal));
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+.metric-label {
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 2px;
+  color: var(--text-dim); margin-bottom: 8px;
+}
+
+.metric-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 36px; font-weight: 900;
+  line-height: 1;
+  color: var(--card-accent, var(--accent-teal));
+  text-shadow: 0 0 20px currentColor;
+}
+
+.metric-unit {
+  font-size: 14px; font-weight: 400;
+  color: var(--text-dim); margin-left: 4px;
+}
+
+.metric-sub {
+  margin-top: 8px;
+  font-size: 12px; color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+}
+
+.metric-badge {
+  display: inline-block;
+  margin-top: 8px; padding: 3px 10px;
+  border-radius: 20px; font-size: 11px;
+  font-weight: 700; letter-spacing: 1px;
+  background: rgba(0,230,118,0.15);
+  border: 1px solid currentColor;
+  color: var(--badge-color, var(--accent-grn));
+}
+
+/* AQI card special */
+#card-aqi { --card-accent: var(--accent-gold); }
+#card-temp { --card-accent: #ff6d00; }
+#card-hum  { --card-accent: #40c4ff; }
+#card-co2  { --card-accent: #e040fb; }
+#card-raw  { --card-accent: var(--accent-teal); }
+
+/* ── AQI GAUGE ───────────────────────────────────────────── */
+.aqi-gauge-wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex; flex-direction: column; align-items: center;
+}
+
+.aqi-gauge-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 12px; letter-spacing: 3px;
+  color: var(--text-dim); text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.gauge-container { position: relative; width: 240px; height: 130px; }
+
+.gauge-svg { width: 100%; height: 100%; }
+
+.gauge-value-display {
+  position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+  text-align: center;
+}
+
+.gauge-number {
+  font-family: 'Orbitron', monospace;
+  font-size: 42px; font-weight: 900;
+  color: var(--accent-gold);
+  text-shadow: 0 0 25px rgba(255,214,0,0.5);
+}
+
+.gauge-category {
+  font-size: 13px; font-weight: 600;
+  letter-spacing: 1px; margin-top: 4px;
+}
+
+/* ── CHART PANELS ────────────────────────────────────────── */
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.charts-grid.single { grid-template-columns: 1fr; }
+
+.chart-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px;
+  position: relative;
+}
+
+.chart-panel::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  border-radius: 12px 12px 0 0;
+  background: var(--panel-accent, var(--accent-teal));
+}
+
+.chart-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.chart-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 2px; color: var(--text-primary);
+  text-transform: uppercase;
+}
+
+.chart-subtitle {
+  font-size: 11px; color: var(--text-dim);
+  letter-spacing: 1px; margin-top: 3px;
+}
+
+.chart-badge {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px; letter-spacing: 1px;
+  padding: 3px 10px; border-radius: 4px;
+  border: 1px solid;
+}
+
+.badge-live  { color: var(--accent-grn); border-color: var(--accent-grn); background: rgba(0,230,118,0.1); }
+.badge-forecast { color: var(--accent-gold); border-color: var(--accent-gold); background: rgba(255,214,0,0.1); }
+
+.chart-wrap { position: relative; height: 220px; }
+
+/* ── AQI SCALE ───────────────────────────────────────────── */
+.aqi-scale {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px; margin-top: 14px;
+}
+
+.scale-item {
+  padding: 6px 8px; border-radius: 6px;
+  text-align: center; font-size: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  font-weight: 600; letter-spacing: 0.5px;
+}
+
+/* ── FORECAST TABLE ─────────────────────────────────────── */
+.forecast-table-wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+  --panel-accent: var(--accent-gold);
+}
+
+.forecast-table-wrap::before {
+  content: '';
+  display: block; height: 2px;
+  background: var(--accent-gold);
+}
+
+.table-header {
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.table-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 13px; font-weight: 700; letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 13px; font-family: 'Share Tech Mono', monospace;
+}
+
+thead tr {
+  background: rgba(13,58,92,0.4);
+}
+
+thead th {
+  padding: 10px 16px; text-align: left;
+  font-size: 10px; letter-spacing: 2px;
+  text-transform: uppercase; color: var(--text-dim);
+  font-family: 'Rajdhani', sans-serif; font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+tbody tr {
+  border-bottom: 1px solid rgba(13,58,92,0.3);
+  transition: background 0.15s;
+}
+
+tbody tr:hover { background: rgba(0,229,255,0.04); }
+
+tbody td { padding: 10px 16px; color: var(--text-primary); }
+
+.td-aqi {
+  font-weight: 700;
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+}
+
+.td-category { font-size: 11px; font-weight: 600; }
+
+/* ── CITY STATUS PANEL ──────────────────────────────────── */
+.city-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.city-zone {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+  display: flex; align-items: center; gap: 12px;
+}
+
+.zone-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  flex-shrink: 0; transition: background 0.5s;
+}
+
+.zone-info h4 {
+  font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-primary);
+}
+
+.zone-info p {
+  font-size: 11px; color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* ── STATS ROW ───────────────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px;
+}
+
+.stat-item { text-align: center; }
+
+.stat-label {
+  font-size: 10px; text-transform: uppercase;
+  letter-spacing: 2px; color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.stat-val {
+  font-family: 'Orbitron', monospace;
+  font-size: 22px; font-weight: 700;
+  color: var(--accent-teal);
+}
+
+.stat-val.danger { color: var(--accent-red); }
+
+/* ── LOADING STATES ─────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-panel) 25%, var(--border) 50%, var(--bg-panel) 75%);
+  background-size: 400% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px; height: 36px;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ── ERROR STATE ────────────────────────────────────────── */
+.error-msg {
+  color: var(--accent-red);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px; padding: 8px 0;
+}
+
+/* ── SECTION LABEL ──────────────────────────────────────── */
+.section-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 4px; text-transform: uppercase;
+  color: var(--text-dim); padding: 4px 0;
+  border-left: 3px solid var(--accent-teal);
+  padding-left: 12px;
+}
+
+/* ── RESPONSIVE ─────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .charts-grid { grid-template-columns: 1fr; }
+  header { flex-wrap: wrap; gap: 12px; }
+  .stats-row { grid-template-columns: repeat(2,1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════ -->
+<header>
+  <div class="brand">
+    <div class="brand-icon">🏙️</div>
+    <div class="brand-text">
+      <h1>AIRWATCH</h1>
+      <p>Smart City Air Quality &amp; Forecasting System</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="live-indicator">
+      <div class="pulse-dot"></div>
+      LIVE MONITORING
+    </div>
+    <div class="timestamp-display" id="clock">--:--:--</div>
+    <button class="refresh-btn" onclick="refreshAll()">⟳ REFRESH</button>
+  </div>
+</header>
+
+<!-- ══ SPIKE ALERT BANNER ══════════════════════════════════ -->
+<div id="spike-alert" style="display:none">
+  <div class="alert-icon">⚠️</div>
+  <div class="alert-text">
+    POLLUTION SPIKE FORECAST DETECTED
+    <span id="spike-time-display">— checking...</span>
+  </div>
+  <div style="margin-left:auto;font-size:12px;color:#ff8a80;font-family:'Share Tech Mono',monospace;">
+    ACTION: Consider traffic rerouting
+  </div>
+</div>
+
+<!-- ══ MAIN ════════════════════════════════════════════════ -->
+<main>
+
+  <!-- ── METRIC CARDS ──────────────────────────────────── -->
+  <div class="section-label">LIVE SENSOR READINGS</div>
+  <div class="metrics-grid">
+
+    <div class="metric-card" id="card-aqi">
+      <div class="metric-label">Air Quality Index</div>
+      <div class="metric-value" id="val-aqi"><span class="skeleton" style="width:80px;display:inline-block">&nbsp;</span></div>
+      <div class="metric-sub">Scale: 0–500</div>
+      <div class="metric-badge" id="badge-aqi" style="color:var(--accent-grn);border-color:var(--accent-grn)">—</div>
+    </div>
+
+    <div class="metric-card" id="card-co2">
+      <div class="metric-label">CO₂ Estimate</div>
+      <div class="metric-value" id="val-co2" style="font-size:30px">—<span class="metric-unit">ppm</span></div>
+      <div class="metric-sub">MQ135 gas sensor</div>
+      <div class="metric-badge" style="color:#e040fb;border-color:#e040fb">CO₂</div>
+    </div>
+
+    <div class="metric-card" id="card-temp">
+      <div class="metric-label">Temperature</div>
+      <div class="metric-value" id="val-temp" style="font-size:34px">—<span class="metric-unit">°C</span></div>
+      <div class="metric-sub">DHT22 sensor</div>
+      <div class="metric-badge" style="color:#ff6d00;border-color:#ff6d00">AMBIENT</div>
+    </div>
+
+    <div class="metric-card" id="card-hum">
+      <div class="metric-label">Humidity</div>
+      <div class="metric-value" id="val-hum" style="font-size:34px">—<span class="metric-unit">%</span></div>
+      <div class="metric-sub">DHT22 sensor</div>
+      <div class="metric-badge" style="color:#40c4ff;border-color:#40c4ff">RELATIVE</div>
+    </div>
+
+    <div class="metric-card" id="card-raw">
+      <div class="metric-label">MQ135 Raw ADC</div>
+      <div class="metric-value" id="val-raw" style="font-size:30px">—</div>
+      <div class="metric-sub">Analog 0–1023</div>
+      <div class="metric-badge" style="color:var(--accent-teal);border-color:var(--accent-teal)">ANALOG</div>
+    </div>
+
+    <!-- AQI Gauge -->
+    <div class="metric-card aqi-gauge-wrap" style="grid-column: span 1;">
+      <div class="aqi-gauge-title">AQI GAUGE</div>
+      <div class="gauge-container">
+        <svg class="gauge-svg" viewBox="0 0 240 130">
+          <!-- Background arc segments -->
+          <path d="M20,120 A100,100 0 0,1 60,27"  fill="none" stroke="#00e400" stroke-width="18" stroke-linecap="round" opacity="0.7"/>
+          <path d="M60,27  A100,100 0 0,1 120,10" fill="none" stroke="#ffff00" stroke-width="18" stroke-linecap="round" opacity="0.7"/>
+          <path d="M120,10 A100,100 0 0,1 180,27" fill="none" stroke="#ff7e00" stroke-width="18" stroke-linecap="round" opacity="0.7"/>
+          <path d="M180,27 A100,100 0 0,1 220,120"fill="none" stroke="#ff0000" stroke-width="18" stroke-linecap="round" opacity="0.7"/>
+          <!-- Needle -->
+          <line id="gauge-needle" x1="120" y1="120" x2="120" y2="30"
+                stroke="var(--accent-gold)" stroke-width="3" stroke-linecap="round"
+                transform="rotate(0,120,120)" style="transition:transform 0.8s ease"/>
+          <circle cx="120" cy="120" r="6" fill="var(--accent-gold)"/>
+        </svg>
+        <div class="gauge-value-display">
+          <div class="gauge-number" id="gauge-num">0</div>
+          <div class="gauge-category" id="gauge-cat" style="color:var(--accent-grn)">Good</div>
+        </div>
+      </div>
+
+      <!-- AQI colour scale legend -->
+      <div class="aqi-scale" style="margin-top:20px;width:100%">
+        <div class="scale-item" style="background:rgba(0,228,0,0.15);color:#00e400;border-color:#00e40044">0–50<br>Good</div>
+        <div class="scale-item" style="background:rgba(255,255,0,0.1);color:#ffff00;border-color:#ffff0044">51–100<br>Mod</div>
+        <div class="scale-item" style="background:rgba(255,126,0,0.15);color:#ff7e00;border-color:#ff7e0044">101–150<br>USG</div>
+        <div class="scale-item" style="background:rgba(255,0,0,0.15);color:#ff4444;border-color:#ff444444">151–200<br>Unhealthy</div>
+        <div class="scale-item" style="background:rgba(143,63,151,0.2);color:#bf7fcb;border-color:#8f3f9744">201–300<br>V.Unhealthy</div>
+        <div class="scale-item" style="background:rgba(126,0,35,0.2);color:#ff7090;border-color:#7e002344">301+<br>Hazardous</div>
+      </div>
+    </div>
+
+  </div><!-- /metrics-grid -->
+
+  <!-- ── HISTORY CHARTS ─────────────────────────────────── -->
+  <div class="section-label">REAL-TIME TREND CHARTS</div>
+  <div class="charts-grid">
+
+    <div class="chart-panel" style="--panel-accent:#ffd600">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">AQI Trend</div>
+          <div class="chart-subtitle">Air Quality Index over time</div>
+        </div>
+        <span class="chart-badge badge-live">LIVE</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-aqi"></canvas></div>
+    </div>
+
+    <div class="chart-panel" style="--panel-accent:#e040fb">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">CO₂ Level</div>
+          <div class="chart-subtitle">Estimated CO₂ concentration (PPM)</div>
+        </div>
+        <span class="chart-badge badge-live">LIVE</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-co2"></canvas></div>
+    </div>
+
+    <div class="chart-panel" style="--panel-accent:#ff6d00">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Temperature</div>
+          <div class="chart-subtitle">Ambient temperature °C (DHT22)</div>
+        </div>
+        <span class="chart-badge badge-live">LIVE</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-temp"></canvas></div>
+    </div>
+
+    <div class="chart-panel" style="--panel-accent:#40c4ff">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Humidity</div>
+          <div class="chart-subtitle">Relative humidity % (DHT22)</div>
+        </div>
+        <span class="chart-badge badge-live">LIVE</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-hum"></canvas></div>
+    </div>
+
+  </div><!-- /charts-grid -->
+
+  <!-- ── ARIMA FORECAST CHARTS ──────────────────────────── -->
+  <div class="section-label">ARIMA FORECAST — 12 STEPS AHEAD</div>
+
+  <div class="charts-grid">
+    <div class="chart-panel" style="--panel-accent:var(--accent-gold)">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">AQI Forecast</div>
+          <div class="chart-subtitle">ARIMA model prediction + 80% confidence band</div>
+        </div>
+        <span class="chart-badge badge-forecast">FORECAST</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-fc-aqi"></canvas></div>
+    </div>
+
+    <div class="chart-panel" style="--panel-accent:#e040fb">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">CO₂ Forecast</div>
+          <div class="chart-subtitle">ARIMA model prediction + 80% confidence band</div>
+        </div>
+        <span class="chart-badge badge-forecast">FORECAST</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-fc-co2"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── FORECAST TABLE ─────────────────────────────────── -->
+  <div class="section-label">PREDICTED AQI VALUES</div>
+  <div class="forecast-table-wrap">
+    <div class="table-header">
+      <div class="table-title">📊 12-Step AQI Forecast</div>
+      <span class="chart-badge badge-forecast" id="model-order-badge">ARIMA</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Time</th>
+          <th>Predicted AQI</th>
+          <th>Lower (80%)</th>
+          <th>Upper (80%)</th>
+          <th>Category</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="forecast-tbody">
+        <tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:20px">Loading forecast data...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── CITY ZONE STATUS ───────────────────────────────── -->
+  <div class="section-label">SMART CITY ZONE STATUS</div>
+  <div class="city-status-grid" id="city-zones">
+    <!-- injected by JS based on AQI -->
+  </div>
+
+  <!-- ── STATISTICS ─────────────────────────────────────── -->
+  <div class="section-label">SESSION STATISTICS (LAST 100 READINGS)</div>
+  <div class="stats-row">
+    <div class="stat-item">
+      <div class="stat-label">Average AQI</div>
+      <div class="stat-val" id="stat-avg-aqi">—</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Max AQI</div>
+      <div class="stat-val danger" id="stat-max-aqi">—</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Danger Readings</div>
+      <div class="stat-val danger" id="stat-danger">—</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Total Readings</div>
+      <div class="stat-val" id="stat-total">—</div>
+    </div>
+  </div>
+
+</main><!-- /main -->
+
+<script>
+/* ══════════════════════════════════════════════════════════
+   CONFIG — edit API_BASE if your Flask server runs elsewhere
+══════════════════════════════════════════════════════════ */
+const API_BASE = "http://localhost:5000";
+
+/* ── Chart.js global defaults ─────────────────────────── */
+Chart.defaults.color          = '#5a8aa8';
+Chart.defaults.font.family    = "'Share Tech Mono', monospace";
+Chart.defaults.font.size      = 11;
+Chart.defaults.borderColor    = 'rgba(13,58,92,0.6)';
+Chart.defaults.backgroundColor = 'transparent';
+
+/* ── AQI helpers ──────────────────────────────────────── */
+const AQI_BANDS = [
+  [0,   50,  'Good',                  '#00e400', '✅ Normal traffic'],
+  [51,  100, 'Moderate',              '#ffff00', '⚠️ Monitor closely'],
+  [101, 150, 'Unhealthy (Sensitive)', '#ff7e00', '🚦 Restrict heavy vehicles'],
+  [151, 200, 'Unhealthy',             '#ff0000', '🛑 Reroute traffic now'],
+  [201, 300, 'Very Unhealthy',        '#bf7fcb', '🚨 Emergency measures'],
+  [301, 500, 'Hazardous',             '#ff7090', '☠️ Full area lockdown'],
+];
+
+function aqiInfo(val) {
+  for (const [lo, hi, label, color, action] of AQI_BANDS) {
+    if (val <= hi) return { label, color, action };
+  }
+  return AQI_BANDS[AQI_BANDS.length - 1].slice(2);
+}
+
+/* ── Chart factory ─────────────────────────────────────── */
+function makeLineChart(id, label, color, fill = false) {
+  const ctx = document.getElementById(id).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label,
+        data:            [],
+        borderColor:     color,
+        backgroundColor: fill ? color + '22' : 'transparent',
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.35,
+        fill,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 400 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#061525',
+          borderColor:     color,
+          borderWidth: 1,
+          titleColor: '#e8f4fd',
+          bodyColor:  '#5a8aa8',
+          callbacks: {
+            title: items => moment(items[0].label).format('HH:mm:ss')
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { maxTicksLimit: 8, callback: (_, i, arr) => {
+            const ts = chartAQI.data.labels[i];
+            return ts ? moment(ts).format('HH:mm') : '';
+          }},
+          grid: { color: 'rgba(13,58,92,0.4)' }
+        },
+        y: { grid: { color: 'rgba(13,58,92,0.4)' } }
+      }
+    }
+  });
+}
+
+/* ── Forecast chart (with confidence band) ─────────────── */
+function makeForecastChart(id, label, color) {
+  const ctx = document.getElementById(id).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label:           'Upper Bound',
+          data:            [],
+          borderColor:     'transparent',
+          backgroundColor: color + '18',
+          fill:            '+1',
+          pointRadius: 0, tension: 0.3,
+        },
+        {
+          label:           label + ' Forecast',
+          data:            [],
+          borderColor:     color,
+          backgroundColor: 'transparent',
+          borderWidth: 2, borderDash: [6, 3],
+          pointRadius: 3, pointBackgroundColor: color,
+          tension: 0.3, fill: false,
+        },
+        {
+          label:           'Lower Bound',
+          data:            [],
+          borderColor:     'transparent',
+          backgroundColor: color + '18',
+          fill:            '-1',
+          pointRadius: 0, tension: 0.3,
+        },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 600 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#061525',
+          borderColor: color, borderWidth: 1,
+          titleColor: '#e8f4fd', bodyColor: '#5a8aa8',
+          filter: item => item.datasetIndex === 1,
+          callbacks: { title: items => moment(items[0].label).format('HH:mm:ss') }
+        }
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 6, callback: (_, i, arr) => {
+          const ts = forecastChartAQI.data.labels[i];
+          return ts ? moment(ts).format('HH:mm') : '';
+        }}, grid: { color: 'rgba(13,58,92,0.4)' }},
+        y: { grid: { color: 'rgba(13,58,92,0.4)' } }
+      }
+    }
+  });
+}
+
+/* ── Instantiate all charts ────────────────────────────── */
+const chartAQI  = makeLineChart('chart-aqi',  'AQI',         '#ffd600', true);
+const chartCO2  = makeLineChart('chart-co2',  'CO₂ PPM',     '#e040fb', true);
+const chartTemp = makeLineChart('chart-temp', 'Temp °C',     '#ff6d00', false);
+const chartHum  = makeLineChart('chart-hum',  'Humidity %',  '#40c4ff', false);
+
+const forecastChartAQI = makeForecastChart('chart-fc-aqi', 'AQI',  '#ffd600');
+const forecastChartCO2 = makeForecastChart('chart-fc-co2', 'CO₂',  '#e040fb');
+
+/* ── Update gauge needle ───────────────────────────────── */
+function updateGauge(aqi) {
+  const clamped  = Math.min(Math.max(aqi, 0), 500);
+  const angle    = (clamped / 500) * 180 - 90; // -90° to +90°
+  document.getElementById('gauge-needle').setAttribute('transform', `rotate(${angle},120,120)`);
+  document.getElementById('gauge-num').textContent = Math.round(clamped);
+  const { label, color } = aqiInfo(clamped);
+  const cat = document.getElementById('gauge-cat');
+  cat.textContent = label; cat.style.color = color;
+}
+
+/* ── Update latest card values ─────────────────────────── */
+function updateLatest(data) {
+  document.getElementById('val-aqi').innerHTML  = `${data.aqi}<span class="metric-unit"></span>`;
+  document.getElementById('val-co2').innerHTML  = `${data.co2}<span class="metric-unit">ppm</span>`;
+  document.getElementById('val-temp').innerHTML = `${data.temperature}<span class="metric-unit">°C</span>`;
+  document.getElementById('val-hum').innerHTML  = `${data.humidity}<span class="metric-unit">%</span>`;
+  document.getElementById('val-raw').innerHTML  = `${data.raw_ppm}`;
+
+  const badge = document.getElementById('badge-aqi');
+  badge.textContent = data.aqi_category;
+  badge.style.color       = data.aqi_color;
+  badge.style.borderColor = data.aqi_color;
+  badge.style.background  = data.aqi_color + '22';
+
+  updateGauge(data.aqi);
+  updateCityZones(data.aqi);
+}
+
+/* ── City zone panel ───────────────────────────────────── */
+const CITY_ZONES = [
+  'CBD Zone A', 'Industrial Zone B', 'Residential Zone C',
+  'Airport Corridor', 'Green Belt D', 'Market Square E'
+];
+
+function updateCityZones(baseAqi) {
+  const container = document.getElementById('city-zones');
+  container.innerHTML = '';
+
+  CITY_ZONES.forEach((zone, i) => {
+    // Slightly vary AQI per zone for realism
+    const variance = (Math.sin(Date.now() / 10000 + i) * 20);
+    const zoneAqi  = Math.max(0, baseAqi + variance);
+    const { label, color } = aqiInfo(zoneAqi);
+
+    container.innerHTML += `
+      <div class="city-zone">
+        <div class="zone-dot" style="background:${color};box-shadow:0 0 8px ${color}"></div>
+        <div class="zone-info">
+          <h4>${zone}</h4>
+          <p style="color:${color}">${label} — AQI ${Math.round(zoneAqi)}</p>
+        </div>
+      </div>`;
+  });
+}
+
+/* ── Update history charts ─────────────────────────────── */
+function updateHistoryCharts(data) {
+  const labels = data.timestamps;
+
+  function setChart(chart, values) {
+    chart.data.labels   = labels;
+    chart.data.datasets[0].data = values;
+    chart.update('none');
+  }
+
+  setChart(chartAQI,  data.aqi);
+  setChart(chartCO2,  data.co2);
+  setChart(chartTemp, data.temperature);
+  setChart(chartHum,  data.humidity);
+}
+
+/* ── Update forecast charts + table ───────────────────── */
+function updateForecast(fcData) {
+  const spikeDiv  = document.getElementById('spike-alert');
+  if (fcData.spike_alert) {
+    spikeDiv.style.display = 'flex';
+    document.getElementById('spike-time-display').textContent =
+      `— Expected at ${moment(fcData.spike_time).format('HH:mm')}`;
+  } else {
+    spikeDiv.style.display = 'none';
+  }
+
+  function setForecastChart(chart, fc) {
+    if (!fc || fc.error) return;
+    chart.data.labels = fc.timestamps;
+    chart.data.datasets[0].data = fc.upper_bound;
+    chart.data.datasets[1].data = fc.forecast;
+    chart.data.datasets[2].data = fc.lower_bound;
+    chart.update('none');
+  }
+
+  setForecastChart(forecastChartAQI, fcData.forecasts.aqi);
+  setForecastChart(forecastChartCO2, fcData.forecasts.co2);
+
+  // Model order badge
+  if (fcData.forecasts.aqi?.model_order) {
+    document.getElementById('model-order-badge').textContent = fcData.forecasts.aqi.model_order;
+  }
+
+  // Build table
+  const fc = fcData.forecasts.aqi;
+  if (!fc || fc.error) {
+    document.getElementById('forecast-tbody').innerHTML =
+      `<tr><td colspan="7" class="error-msg" style="text-align:center;padding:20px">Forecast unavailable — need more data</td></tr>`;
+    return;
+  }
+
+  let rows = '';
+  fc.forecast.forEach((val, i) => {
+    const { label, color, action } = aqiInfo(val);
+    rows += `
+      <tr>
+        <td style="color:var(--text-dim)">${i + 1}</td>
+        <td>${moment(fc.timestamps[i]).format('HH:mm:ss')}</td>
+        <td class="td-aqi" style="color:${color}">${val}</td>
+        <td style="color:var(--text-dim)">${fc.lower_bound[i]}</td>
+        <td style="color:var(--text-dim)">${fc.upper_bound[i]}</td>
+        <td class="td-category" style="color:${color}">${label}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${action}</td>
+      </tr>`;
+  });
+  document.getElementById('forecast-tbody').innerHTML = rows;
+}
+
+/* ── Update stats panel ────────────────────────────────── */
+function updateStats(s) {
+  if (s.aqi) {
+    document.getElementById('stat-avg-aqi').textContent = s.aqi.mean;
+    document.getElementById('stat-max-aqi').textContent = s.aqi.max;
+  }
+  document.getElementById('stat-danger').textContent = s.danger_readings ?? '—';
+  document.getElementById('stat-total').textContent  = s.total_readings ?? '—';
+}
+
+/* ── Fetch all data ────────────────────────────────────── */
+async function fetchWithRetry(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+async function refreshAll() {
+  try {
+    const [latest, history, forecast, stats] = await Promise.all([
+      fetchWithRetry(`${API_BASE}/api/latest`),
+      fetchWithRetry(`${API_BASE}/api/history`),
+      fetchWithRetry(`${API_BASE}/api/forecast`),
+      fetchWithRetry(`${API_BASE}/api/stats`),
+    ]);
+
+    updateLatest(latest);
+    updateHistoryCharts(history);
+    updateForecast(forecast);
+    updateStats(stats);
+
+  } catch (err) {
+    console.error('API error:', err);
+    // Show demo data if Flask not reachable
+    showDemoMode();
+  }
+}
+
+/* ── DEMO MODE (when Flask is not running) ─────────────── */
+function showDemoMode() {
+  const notice = document.createElement('div');
+  notice.style.cssText = `position:fixed;bottom:16px;right:16px;background:#061525;border:1px solid #ffd600;
+    border-radius:8px;padding:12px 18px;font-family:'Share Tech Mono',monospace;font-size:11px;
+    color:#ffd600;z-index:999;max-width:300px;letter-spacing:1px`;
+  notice.textContent = '⚠ DEMO MODE — Flask API not reachable. Start app.py to see live data.';
+  document.body.appendChild(notice);
+  setTimeout(() => notice.remove(), 6000);
+
+  // Inject synthetic demo data
+  const now = Date.now();
+  const labels = Array.from({length: 30}, (_, i) =>
+    new Date(now - (29 - i) * 20000).toISOString());
+
+  const aqi  = labels.map(() => Math.round(60 + Math.random() * 80));
+  const co2  = labels.map(() => Math.round(600 + Math.random() * 400));
+  const temp = labels.map(() => +(28 + Math.random() * 4).toFixed(1));
+  const hum  = labels.map(() => +(55 + Math.random() * 20).toFixed(1));
+
+  updateHistoryCharts({ timestamps: labels, aqi, co2, temperature: temp, humidity: hum });
+  updateLatest({ aqi: aqi.slice(-1)[0], co2: co2.slice(-1)[0],
+    temperature: temp.slice(-1)[0], humidity: hum.slice(-1)[0], raw_ppm: 512,
+    aqi_category: 'Moderate', aqi_color: '#ffff00' });
+
+  // Demo forecast
+  const fcLabels = Array.from({length:12}, (_, i) =>
+    new Date(now + (i+1)*20000).toISOString());
+  const demoFc = fcLabels.map(() => Math.round(80 + Math.random() * 60));
+
+  forecastChartAQI.data.labels = fcLabels;
+  forecastChartAQI.data.datasets[1].data = demoFc;
+  forecastChartAQI.data.datasets[0].data = demoFc.map(v => v + 15);
+  forecastChartAQI.data.datasets[2].data = demoFc.map(v => v - 15);
+  forecastChartAQI.update('none');
+
+  let rows = '';
+  fcLabels.forEach((ts, i) => {
+    const val = demoFc[i];
+    const { label, color, action } = aqiInfo(val);
+    rows += `<tr>
+      <td style="color:var(--text-dim)">${i+1}</td>
+      <td>${moment(ts).format('HH:mm:ss')}</td>
+      <td class="td-aqi" style="color:${color}">${val}</td>
+      <td style="color:var(--text-dim)">${val-15}</td>
+      <td style="color:var(--text-dim)">${val+15}</td>
+      <td class="td-category" style="color:${color}">${label}</td>
+      <td style="font-size:11px;color:var(--text-dim)">${action}</td>
+    </tr>`;
+  });
+  document.getElementById('forecast-tbody').innerHTML = rows;
+
+  document.getElementById('stat-avg-aqi').textContent = '94';
+  document.getElementById('stat-max-aqi').textContent = '142';
+  document.getElementById('stat-danger').textContent  = '12';
+  document.getElementById('stat-total').textContent   = '100';
+}
+
+/* ── Clock ─────────────────────────────────────────────── */
+function updateClock() {
+  document.getElementById('clock').textContent =
+    moment().format('YYYY-MM-DD HH:mm:ss');
+}
+
+/* ── Init ──────────────────────────────────────────────── */
+updateClock();
+setInterval(updateClock, 1000);
+refreshAll();
+setInterval(refreshAll, 30000); // Auto-refresh every 30 seconds
+</script>
+</body>
+</html>
